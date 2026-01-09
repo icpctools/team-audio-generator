@@ -1,0 +1,32 @@
+[project]
+name = "icpc-audio-generator"
+version = "0.1.0"
+description = "Generate audio files for ICPC team and organization names using Google TTS"
+requires-python = ">=3.10"
+dependencies = [
+    "google-cloud-texttospeech>=2.14.0",
+    "questionary>=2.0.0",
+    "rich>=13.0.0",
+    "click>=8.0.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.scripts]
+icpc-audio = "icpc_audio.cli:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/icpc_audio"]
