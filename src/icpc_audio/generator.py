@@ -16,10 +16,12 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from icpc_audio.models import GenerationConfig, Mode, Organization, Team
-from icpc_audio.tts import TTSClient
+from icpc_audio.models import GenerationConfig, ItemOverride, Mode, Organization, Team
+from icpc_audio.tts import TTSClient, VOICES
 
 console = Console()
+
+GENDERS = list(VOICES.keys())  # ["male", "female"]
 
 
 def load_organizations(json_path: Path) -> list[Organization]:
@@ -52,10 +54,10 @@ def load_teams(json_path: Path) -> list[Team]:
     ]
 
 
-def get_output_path(config: GenerationConfig, item_id: str) -> Path:
+def get_output_path(config: GenerationConfig, item_id: str, gender: str) -> Path:
     """Get output path for audio file."""
     subdir = config.mode.value  # "organizations" or "teams"
-    return config.folder_path / subdir / item_id / f"audio.{config.audio_format.value}"
+    return config.folder_path / subdir / item_id / f"audio.{gender}.{config.audio_format.value}"
 
 
 @dataclass
@@ -64,6 +66,9 @@ class GenerationTask:
 
     item: Union[Organization, Team]
     output_path: Path
+    gender: str
+    prompt: str
+    language: str
 
 
 @dataclass
@@ -88,8 +93,9 @@ def generate_single(
         # Generate audio
         audio_bytes = tts_client.synthesize(
             text=task.item.display_text,
-            language_code=config.language,
-            voice_name=config.voice,
+            prompt=task.prompt,
+            language_code=task.language,
+            gender=task.gender,
             audio_format=config.audio_format.value,
         )
 
@@ -117,8 +123,9 @@ def generate_audio(config: GenerationConfig) -> None:
         items = load_teams(json_file)
 
     console.print(f"\n[bold]Loaded {len(items)} {config.mode.value}[/bold]")
-    console.print(f"  Voice: [cyan]{config.voice}[/cyan]")
+    console.print(f"  Language: [cyan]{config.language}[/cyan]")
     console.print(f"  Format: [cyan]{config.audio_format.value}[/cyan]")
+    console.print(f"  Voices: [cyan]{', '.join(GENDERS)}[/cyan]")
     console.print(f"  Parallel jobs: [cyan]{config.jobs}[/cyan]")
 
     # Determine what needs to be generated
@@ -126,12 +133,34 @@ def generate_audio(config: GenerationConfig) -> None:
     skipped: list[tuple[Union[Organization, Team], Path, str]] = []
 
     for item in items:
-        output_path = get_output_path(config, item.id)
+        # Get per-item overrides
+        override = config.overrides.get(item.id, ItemOverride())
 
-        if not config.force and output_path.exists():
-            skipped.append((item, output_path, "exists"))
+        # Build prompt for this item
+        if override.additional_prompt:
+            prompt = f"{config.prompt} {override.additional_prompt}"
         else:
-            to_generate.append(GenerationTask(item=item, output_path=output_path))
+            prompt = config.prompt
+
+        # Get language for this item
+        language = override.language or config.language
+
+        # Create tasks for each gender
+        for gender in GENDERS:
+            output_path = get_output_path(config, item.id, gender)
+
+            if not config.force and output_path.exists():
+                skipped.append((item, output_path, "exists"))
+            else:
+                to_generate.append(
+                    GenerationTask(
+                        item=item,
+                        output_path=output_path,
+                        gender=gender,
+                        prompt=prompt,
+                        language=language,
+                    )
+                )
 
     # Show summary
     console.print(f"\n  To generate: [green]{len(to_generate)}[/green]")
@@ -176,7 +205,7 @@ def generate_audio(config: GenerationConfig) -> None:
 
                 progress.update(
                     task_id,
-                    description=f"Generated: {result.task.item.display_text[:40]}...",
+                    description=f"{result.task.item.display_text[:30]}... ({result.task.gender})",
                     advance=1,
                 )
 
@@ -187,7 +216,7 @@ def generate_audio(config: GenerationConfig) -> None:
         console.print(f"  Errors: [red]{len(errors)}[/red]")
         for result in errors:
             console.print(
-                f"    - {result.task.item.id} ({result.task.item.display_text}): {result.error}"
+                f"    - {result.task.item.id} ({result.task.gender}): {result.error}"
             )
 
 
@@ -202,19 +231,23 @@ def show_dry_run_preview(
     if to_generate:
         table = Table(title="Files to Generate")
         table.add_column("ID", style="cyan")
-        table.add_column("Text to Speak", style="green")
+        table.add_column("Text", style="green")
+        table.add_column("Gender")
+        table.add_column("Language")
         table.add_column("Output Path", style="dim")
 
-        for task in to_generate[:20]:  # Limit preview
+        for task in to_generate[:30]:  # Limit preview
             rel_path = task.output_path.relative_to(config.folder_path)
             table.add_row(
                 task.item.id,
-                task.item.display_text[:50],
+                task.item.display_text[:40],
+                task.gender,
+                task.language,
                 str(rel_path),
             )
 
-        if len(to_generate) > 20:
-            table.add_row("...", f"({len(to_generate) - 20} more)", "...")
+        if len(to_generate) > 30:
+            table.add_row("...", f"({len(to_generate) - 30} more)", "", "", "...")
 
         console.print(table)
 

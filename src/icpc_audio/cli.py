@@ -6,13 +6,11 @@ from typing import Optional
 
 import click
 from rich.console import Console
-from rich.table import Table
 
 from icpc_audio.config import load_config
 from icpc_audio.configure import run_configure
 from icpc_audio.generator import generate_audio
-from icpc_audio.models import AudioFormat, GenerationConfig, Mode
-from icpc_audio.tts import TTSClient
+from icpc_audio.models import AudioFormat, GenerationConfig, ItemOverride, Mode
 
 console = Console()
 
@@ -64,14 +62,23 @@ def generate(
         console.print(f"[red]Error: Credentials file not found: {credentials_path}[/red]")
         raise SystemExit(1)
 
+    # Convert overrides dict from config
+    overrides: dict[str, ItemOverride] = {}
+    for item_id, override_data in saved_config.overrides.items():
+        if isinstance(override_data, dict):
+            overrides[item_id] = ItemOverride(**override_data)
+        else:
+            overrides[item_id] = override_data
+
     config = GenerationConfig(
         folder_path=folder,
         mode=Mode(saved_config.mode),
         audio_format=AudioFormat(saved_config.format),
         language=saved_config.language,
-        voice=saved_config.voice,
         credentials_path=credentials_path,
         jobs=saved_config.jobs,
+        prompt=saved_config.prompt,
+        overrides=overrides,
         force=force,
         dry_run=dry_run,
     )
@@ -91,62 +98,6 @@ def configure(folder: Path) -> None:
         run_configure(folder)
     except KeyboardInterrupt:
         console.print("\n[yellow]Configuration cancelled.[/yellow]")
-
-
-@main.command()
-@click.argument(
-    "folder",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    required=False,
-)
-@click.option("-l", "--language", help="Filter by language code (e.g., en-US)")
-@click.option(
-    "-c",
-    "--credentials",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to Google Cloud credentials JSON",
-)
-def voices(
-    folder: Optional[Path],
-    language: Optional[str],
-    credentials: Optional[Path],
-) -> None:
-    """List available Google TTS voices.
-
-    Optionally specify FOLDER to load credentials from icpc-audio.yaml.
-    """
-    # Try to get credentials from config if not provided
-    if not credentials and folder:
-        saved_config = load_config(folder)
-        if saved_config and saved_config.credentials_path:
-            credentials = Path(saved_config.credentials_path)
-
-    try:
-        client = TTSClient(credentials)
-        voice_list = client.list_voices(language_code=language)
-    except Exception as e:
-        console.print(f"[red]Error connecting to Google TTS: {e}[/red]")
-        raise SystemExit(1)
-
-    table = Table(title="Available Google TTS Voices")
-    table.add_column("Language", style="cyan")
-    table.add_column("Voice Name", style="green")
-    table.add_column("Gender")
-    table.add_column("Type")
-
-    for v in sorted(voice_list, key=lambda x: (x.language_codes[0], x.name)):
-        lang = v.language_codes[0]
-        gender = v.ssml_gender.name
-        if "Neural2" in v.name or "Journey" in v.name:
-            vtype = "Neural"
-        elif "Wavenet" in v.name:
-            vtype = "Wavenet"
-        else:
-            vtype = "Standard"
-        table.add_row(lang, v.name, gender, vtype)
-
-    console.print(table)
-    console.print(f"\nTotal: {len(voice_list)} voices")
 
 
 if __name__ == "__main__":

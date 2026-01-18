@@ -8,6 +8,13 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+DEFAULT_PROMPT = (
+    "You are an announcer for the International Collegiate Programming Contest "
+    "and are announcing teams entering the contest floor. "
+    "Only announce the given name, nothing more or less."
+)
+
+
 class Mode(str, Enum):
     """Generation mode."""
 
@@ -54,15 +61,23 @@ class Team:
         return self.display_name or self.name
 
 
+class ItemOverride(BaseModel):
+    """Per-item (team/org) overrides for prompt and language."""
+
+    additional_prompt: Optional[str] = None
+    language: Optional[str] = None
+
+
 class Config(BaseModel):
     """Configuration stored in icpc-audio.yaml."""
 
     credentials_path: Optional[str] = None
     language: str = "en-US"
-    voice: str = "en-US-Wavenet-D"
-    format: str = "mp3"
+    format: str = "wav"
     mode: str = "teams"
     jobs: int = 4
+    prompt: str = DEFAULT_PROMPT
+    overrides: dict[str, ItemOverride] = {}
 
 
 @dataclass
@@ -73,8 +88,9 @@ class GenerationConfig:
     mode: Mode
     audio_format: AudioFormat
     language: str
-    voice: str
     credentials_path: Optional[Path]
     jobs: int
+    prompt: str
+    overrides: dict[str, ItemOverride]
     force: bool = False
     dry_run: bool = False

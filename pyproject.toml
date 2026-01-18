@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "Generate audio files for ICPC team and organization names using Google TTS"
 requires-python = ">=3.10"
 dependencies = [
-    "google-cloud-texttospeech>=2.14.0",
+    "google-auth>=2.0.0",
     "questionary>=2.0.0",
+    "requests>=2.25.0",
     "rich>=13.0.0",
     "click>=8.0.0",
     "pydantic>=2.0.0",
